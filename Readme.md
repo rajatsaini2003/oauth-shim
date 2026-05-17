@@ -13,7 +13,7 @@ Key properties of this architecture:
 - Users authenticate once via browser; every subsequent MCP tool call carries a valid Entra JWT automatically
 - APIM's native MCP server feature auto-discovers all imported APIs and exposes their operations as MCP tools — no custom MCP server code required
 - The Entra JWT flows all the way to backend APIs, which can validate it independently and enforce RBAC using group claims
-- The OAuthShim runs either locally (C#) or as an Azure App Service (Node.js), with no change to Claude Code configuration
+- The OAuthShim runs either locally or as an Azure App Service (Node.js), with no change to Claude Code configuration
 
 ---
 
@@ -51,7 +51,7 @@ The shim is a transparent proxy. The token Claude Code receives is an **unmodifi
 | Component | Technology | Role |
 |---|---|---|
 | **MCP Client** | Claude Code CLI | Calls MCP tools, drives the OAuth flow |
-| **OAuth Shim** | C# ASP.NET Core / Node.js Express | Adds DCR support on top of Entra ID |
+| **OAuth Shim** | Node.js Express | Adds DCR support on top of Entra ID |
 | **APIM MCP Server** | Azure API Management (`type: mcp`) | Auto-exposes all imported API operations as MCP tools, validates JWT |
 | **Identity Provider** | Microsoft Entra ID | Issues JWT access tokens with group claims |
 | **Backend APIs** | Any REST API | Receives forwarded JWT, enforces RBAC via groups claim |
@@ -280,28 +280,7 @@ The shim implements four OAuth endpoints required by Claude Code:
 | `/connect/callback` | GET | Receive Entra auth code, redirect back to Claude Code's local listener |
 | `/connect/token` | POST | Proxy token exchange to Entra, return real JWT unchanged |
 
-### 5.1 C# Version (Local)
-
-**Stack:** ASP.NET Core minimal API, .NET 8, no external packages
-
-Runs locally alongside Claude Code. Uses `ConcurrentDictionary` for in-memory DCR client and pending auth state with a background cleanup task.
-
-**Location:** `C:\Projects\claude Testing\OAuthShim\`
-
-**Config (`appsettings.json`):**
-```json
-{
-  "TenantId": "<entra-tenant-id>",
-  "ClientId": "<entra-client-id>",
-  "Scope":    "api://<client-id>/access_as_user",
-  "BaseUrl":  "http://localhost:5200",
-  "Port":     5200
-}
-```
-
-**Run:** `OAuthShim.exe`
-
-### 5.2 Node.js Version (Azure App Service)
+### 5.1 Node.js Version (Local and Azure App Service)
 
 **Stack:** Express 4, Node 18+, ES modules, no external auth libraries
 
@@ -349,9 +328,9 @@ OAuthShim-Node/
 |---|---|
 | **Application (client) ID** | `e85338f8-3c5f-49b4-ac6c-38fd5754439b` |
 | **Directory (tenant) ID** | `bcb8c03f-2701-4bf3-9444-7a8d71506c7d` |
-| **Redirect URI — Mobile/Desktop** | `http://localhost` (for local C# shim) |
-| **Redirect URI — Web** | `https://oauth-shim.azurewebsites.net/connect/callback` (for deployed Node.js shim) |
-| **Allow public client flows** | Yes (for local development without client secret) |
+| **Redirect URI — Web (local)** | `http://localhost:5200/connect/callback` |
+| **Redirect URI — Web (deployed)** | `https://oauth-shim.azurewebsites.net/connect/callback` |
+| **Allow public client flows** | No (OAuthShim is a confidential web client) |
 | **Exposed scope** | `api://e85338f8.../access_as_user` |
 | **Optional claims — access token** | `groups` |
 
@@ -469,12 +448,13 @@ The `groups` claim in the Entra JWT contains the Object IDs of the user's Entra 
 
 ## 11. Configuration Reference
 
-### Running Locally (C# Shim)
+### Running Locally (Node.js Shim)
 
 ```
-1. OAuthShim\publish\OAuthShim.exe    ← keep open
-2. claude                              ← start Claude Code
-3. Call any MCP tool → browser opens once → done
+1. npm install
+2. npm start                            ← keep running
+3. claude                              ← start Claude Code
+4. Call any MCP tool → browser opens once → done
 ```
 
 Subsequent sessions use the refresh token silently — no browser prompt.
@@ -501,19 +481,3 @@ Subsequent sessions use the refresh token silently — no browser prompt.
 
 ---
 
-## 12. Comparison: Local Shim vs Deployed Shim
-
-| Aspect | C# Local Shim | Node.js App Service Shim |
-|---|---|---|
-| **Runtime** | Developer machine only | Azure App Service — accessible from any machine |
-| **Auth method** | Public client (no secret needed) | Confidential client (`client_secret` required) |
-| **Redirect URI platform** | Mobile/Desktop (`http://localhost`) | Web (`https://oauth-shim.azurewebsites.net/...`) |
-| **Suitable for** | Individual developer R&D | Team-wide or CI/CD use |
-| **Token caching** | In-memory, lost on restart | In-memory, lost on restart (stateless) |
-| **Operational overhead** | Must run OAuthShim.exe manually | Always-on, managed by Azure |
-| **Secret management** | None needed | `CLIENT_SECRET` in App Service config |
-| **Architecture** | Single-file minimal API | N-tier: controller / service / repository layers |
-
----
-
-*Project files: `C:\Projects\claude Testing\OAuthShim\` (C#) · `C:\Projects\claude Testing\OAuthShim-Node\` (Node.js)*
