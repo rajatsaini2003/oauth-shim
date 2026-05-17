@@ -1,0 +1,17 @@
+{
+  "name": "oauth-shim",
+  "version": "1.0.0",
+  "description": "OAuth 2.1 DCR shim that proxies PKCE flows to Microsoft Entra ID",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}
